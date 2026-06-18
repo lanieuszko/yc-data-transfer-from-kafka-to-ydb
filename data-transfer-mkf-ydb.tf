@@ -13,11 +13,7 @@ locals {
   source_user_name     = "" # Username of the Apache Kafka® cluster
   source_user_password = "" # Apache Kafka® user's password
 
-  # Target YDB settings:
-  target_db_name = "" # YDB database name
-
-  # Specify these settings ONLY AFTER the clusters are created. Then run "terraform apply" command again.
-  # You should set up endpoints using the GUI to obtain their IDs
+  # Specify this setting ONLY AFTER the clusters are created. Then run "terraform apply" command again.
   transfer_enabled = 0  # Set to 1 to enable the transfer
 
   # The following settings are predefined. Change them only if necessary.
@@ -25,6 +21,7 @@ locals {
   subnet_name         = "subnet-a"                 # Name of the subnet
   source_cluster_name = "kafka-cluster"            # Name of the Apache Kafka® cluster
   source_topic        = "sensors"                  # Name of the Apache Kafka® topic
+  target_db_name      = "ydb"                      # Name of the YDB database
   transfer_name       = "transfer-from-mkf-to-ydb" # Name of the transfer from the Managed Service for Apache Kafka® to the YDB database
 }
 
@@ -118,7 +115,7 @@ resource "yandex_mdb_kafka_user" "mkf-user" {
 
 resource "yandex_ydb_database_serverless" "ydb" {
   name        = local.target_db_name
-  location_id = "ru-central1"
+  location_id = "global"
 }
 
 # Service account that Data Transfer will use to connect to the YDB database
