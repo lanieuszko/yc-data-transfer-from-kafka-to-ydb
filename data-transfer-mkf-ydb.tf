@@ -6,6 +6,8 @@
 # Configure the parameters of the source and target clusters:
 
 locals {
+  folder_id = "" # Your cloud folder ID, same as for the Yandex Cloud provider.
+
   # Source Managed Service for Apache Kafka® cluster settings:
   source_kf_version    = "" # Apache Kafka® cluster version
   source_user_name     = "" # Username of the Apache Kafka® cluster
@@ -16,9 +18,7 @@ locals {
 
   # Specify these settings ONLY AFTER the clusters are created. Then run "terraform apply" command again.
   # You should set up endpoints using the GUI to obtain their IDs
-  source_endpoint_id = "" # Set the source endpoint ID
-  target_endpoint_id = "" # Set the target endpoint ID
-  transfer_enabled   = 0  # Set to 1 to enable the transfer
+  transfer_enabled = 0  # Set to 1 to enable the transfer
 
   # The following settings are predefined. Change them only if necessary.
   network_name        = "network"                  # Name of the network
@@ -114,20 +114,116 @@ resource "yandex_mdb_kafka_user" "mkf-user" {
   }
 }
 
-# Infrastructure for the Yandex Database
+# Infrastructure for the YDB database
 
 resource "yandex_ydb_database_serverless" "ydb" {
-  name = local.target_db_name
+  name        = local.target_db_name
   location_id = "ru-central1"
 }
 
+# Service account that Data Transfer will use to connect to the YDB database
+resource "yandex_iam_service_account" "ydb-sa" {
+  description = "Service account for the YDB database"
+  name        = "ydb-sa"
+}
+
+# Assign the "editor" role to the service account
+resource "yandex_resourcemanager_folder_iam_binding" "ydb-editor" {
+  folder_id = local.folder_id
+  role      = "editor"
+  members   = [
+    "serviceAccount:${yandex_iam_service_account.ydb-sa.id}"
+  ]
+}
+
 # Data Transfer infrastructure
+
+resource "yandex_datatransfer_endpoint" "kf-source" {
+  description = "Source endpoint for the Managed Service for Apache Kafka® cluster"
+  count       = local.transfer_enabled
+  name        = "kf-source"
+  settings {
+    kafka_source {
+      connection {
+        cluster_id = yandex_mdb_kafka_cluster.kafka-cluster.id
+      }
+      auth {
+        sasl {
+          user = yandex_mdb_kafka_user.mkf-user.name
+          password {
+            raw = local.source_user_password
+          }
+        }
+      }
+      topic_names = [
+        yandex_mdb_kafka_topic.sensors.name
+      ]
+      parser {
+        json_parser {
+          data_schema {
+            fields {
+              fields {
+                name = "device_id"
+                type = "STRING"
+                key  = true
+              }
+              fields {
+                name = "datetime"
+                type = "STRING"
+              }
+              fields {
+                name = "latitude"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "longitude"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "altitude"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "speed"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "battery_voltage"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "cabin_temperature"
+                type = "UINT16"
+              }
+              fields {
+                name = "fuel_level"
+                type = "UINT16"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "yandex_datatransfer_endpoint" "ydb-target" {
+  description = "Target endpoint for the YDB database"
+  count       = local.transfer_enabled
+  name        = "ydb-target"
+  settings {
+    ydb_target {
+      database           = yandex_ydb_database_serverless.ydb.database_path
+      service_account_id = yandex_iam_service_account.ydb-sa.id
+    }
+  }
+}
 
 resource "yandex_datatransfer_transfer" "mkf-ydb-transfer" {
   description = "Transfer from the Managed Service for Apache Kafka® to the YDB database"
   count       = local.transfer_enabled
   name        = local.transfer_name
-  source_id   = local.source_endpoint_id
-  target_id   = local.target_endpoint_id
+  source_id   = yandex_datatransfer_endpoint.kf-source[count.index].id
+  target_id   = yandex_datatransfer_endpoint.ydb-target[count.index].id
   type        = "INCREMENT_ONLY" # Replication data
 }
