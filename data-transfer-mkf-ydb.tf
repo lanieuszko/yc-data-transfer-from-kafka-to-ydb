@@ -124,10 +124,10 @@ resource "yandex_iam_service_account" "ydb-sa" {
   name        = "ydb-sa"
 }
 
-# Assign the "editor" role to the service account
+# Assign the "ydb.editor" role to the service account
 resource "yandex_resourcemanager_folder_iam_binding" "ydb-editor" {
   folder_id = local.folder_id
-  role      = "editor"
+  role      = "ydb.editor"
   members   = [
     "serviceAccount:${yandex_iam_service_account.ydb-sa.id}"
   ]
